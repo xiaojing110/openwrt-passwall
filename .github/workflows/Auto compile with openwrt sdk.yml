@@ -69,11 +69,7 @@ jobs:
           echo "![](https://img.shields.io/github/downloads/${{ env.passwall }}/${{steps.check_version.outputs.latest_version}}/total?style=flat-square)" >> release.txt
           echo "## :mega: 获取其他软件包 / How to Get Other Packages" >>release.txt
           echo "" >>release.txt
-          echo "### 方式 1：添加软件源 / Method 1: Add Software Source" >>release.txt
-          echo " * 请按照 [openwrt-passwall-build](https://github.com/moetayuko/openwrt-passwall-build) 仓库的说明，将其提供的软件源添加到设备中，然后直接使用包管理器安装。" >>release.txt
-          echo "  Follow the instructions in the [openwrt-passwall-build](https://github.com/moetayuko/openwrt-passwall-build) repository to add the provided software source to your device, then install directly using the package manager." >>release.txt
-          echo "" >>release.txt
-          echo "### 方式 2：手动下载并安装 / Method 2: Manual Download and Install" >>release.txt
+          echo "### 方式 ：手动下载并安装 / Method 2: Manual Download and Install" >>release.txt
           echo "" >>release.txt
           echo "* 从 [SourceForge](https://sourceforge.net/projects/openwrt-passwall-build/files/) 下载预构建的软件包。" >>release.txt
           echo "  Download prebuilt packages from [SourceForge](https://sourceforge.net/projects/openwrt-passwall-build/files/)." >>release.txt
