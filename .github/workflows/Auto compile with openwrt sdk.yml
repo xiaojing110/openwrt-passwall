@@ -4,26 +4,23 @@
 # Description: Auto compile
 #
 name: "Auto compile with openwrt sdk"
+
 on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
       ssh:
-        description: '开启 SSH 连接用于调试 Actions（会暂停等待登录，慎用）/ Enable SSH server for debugging (workflow will pause)'
+        description: '是否开启 Actions 的 SSH 连接用于调试？(true=开启，会暂停等待登录) / Enable SSH connection for debugging?'
         required: false
         default: 'false'
         type: boolean
 
       force_build:
-        description: '强制编译（忽略版本检查）/ Force build even without version update'
+        description: '强制编译（忽略版本检查，即使没有更新也构建）/ Force build even if no update detected'
         required: false
         default: 'false'
         type: boolean
 
-      custom_note:
-        description: '本次编译的备注（会显示在 release 说明里，可留空）/ Note for this build (will appear in release body)'
-        required: false
-        default: ''
 env:
   TZ: Asia/Shanghai
   passwall: ${{ github.repository }}
@@ -41,6 +38,7 @@ jobs:
       passwall_version: ${{ steps.check_version.outputs.latest_version }}
       has_update: ${{ steps.check_version.outputs.has_update }}
       prerelease: ${{ steps.check_version.outputs.prerelease }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@main
@@ -61,63 +59,50 @@ jobs:
           echo "prerelease=${prerelease}" >> $GITHUB_OUTPUT
 
           remote_latest_version=$(wget -qO- -t1 -T2 ${{env.url_tags}} | jq -r '.tag_name')
-
           if [ -z "$remote_latest_version" ] || [ "$remote_latest_version" = "null" ]; then
             echo "Failed to fetch remote tags"
             echo "has_update=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          echo "Remote latest: $remote_latest_version"
 
+          echo "Remote latest: $remote_latest_version"
           if [ "$latest_version" = "$remote_latest_version" ]; then
             echo "has_update=false" >> $GITHUB_OUTPUT
           else
             echo "has_update=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare release
+          # 支持手动强制编译
+          if [ "${{ inputs.force_build }}" = "true" ]; then
+            echo "Force build enabled → has_update=true"
+            echo "has_update=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare release notes base
         if: steps.check_version.outputs.has_update == 'true'
         run: |
-          echo "![](https://img.shields.io/github/downloads/${{ env.passwall }}/${{steps.check_version.outputs.latest_version}}/total?style=flat-square)" >> release.txt
-          echo "## :mega: 获取其他软件包 / How to Get Other Packages" >>release.txt
-          echo "" >>release.txt
-          echo "### 方式 ：手动下载并安装 / Method 2: Manual Download and Install" >>release.txt
-          echo "" >>release.txt
-          echo "* 从 [SourceForge](https://sourceforge.net/projects/openwrt-passwall-build/files/) 下载预构建的软件包。" >>release.txt
-          echo "  Download prebuilt packages from [SourceForge](https://sourceforge.net/projects/openwrt-passwall-build/files/)." >>release.txt
-          echo "" >>release.txt
-          echo "* 将文件上传到您的设备，使用 Shell 命令进行安装。" >>release.txt
-          echo "  Upload files to your device, install it with shell command." >>release.txt
-          echo "" >>release.txt
-          echo "ipk" >>release.txt
-          echo "\`\`\`" >>release.txt
-          echo "opkg install /path/to/package.ipk" >>release.txt
-          echo "\`\`\`" >>release.txt
-          echo "apk" >>release.txt
-          echo "\`\`\`" >>release.txt
-          echo "apk add /path/to/package.apk" >>release.txt
-          echo "\`\`\`" >>release.txt
-          echo "" >>release.txt
-          echo ":warning: 请将 /path/to/package 替换为实际下载的软件包路径。" >>release.txt
-          echo "- Replace /path/to/package with the actual path of the downloaded packages." >>release.txt
-          touch release.txt
-
-      - name: Generate new tag & release
-        if: steps.check_version.outputs.has_update == 'true'
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{steps.check_version.outputs.latest_version}}
-          target_commitish: ${{ github.ref_name }}
-          prerelease: ${{steps.check_version.outputs.prerelease}}
-          body_path: release.txt
-
+          echo "![](https://img.shields.io/github/downloads/${{ env.passwall }}/${{steps.check_version.outputs.latest_version}}/total?style=flat-square)" > release.txt
+          echo "" >> release.txt
+          echo "## :mega: 获取其他软件包 / How to Get Other Packages" >> release.txt
+          echo "" >> release.txt
+          echo "### 手动下载并安装 / Manual Download and Install" >> release.txt
+          echo "" >> release.txt
+          echo "* 上传到设备后使用命令安装：" >> release.txt
+          echo " Upload files to your device, then install with shell:" >> release.txt
+          echo "" >> release.txt
+          echo "**ipk**" >> release.txt
+          echo '```' >> release.txt
+          echo "opkg install /path/to/luci-app-passwall_*.ipk" >> release.txt
+          echo '```' >> release.txt
+          echo "" >> release.txt
+          echo ":warning: 请替换 /path/to/... 为实际文件路径。" >> release.txt
 
   job_build_passwall:
     name: Build passwall [${{ matrix.ver }}]
     needs: job_check
-    if: needs.job_check.outputs.has_update == 'true'
+    if: >
+      needs.job_check.outputs.has_update == 'true'
+      || inputs.force_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -125,17 +110,15 @@ jobs:
         include:
           - url_sdk: https://archive.openwrt.org/releases/21.02.7/targets/x86/64/openwrt-sdk-21.02.7-x86-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz
             ver: "22.03-"
-
           - url_sdk: https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-sdk-24.10.5-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst
             ver: "23.05-24.10"
-
           - url_sdk: https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-sdk-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
             ver: "25.12+"
+
     steps:
       - name: Install packages
         run: |
           sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /usr/local/lib/android
-          echo "Install packages"
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
             bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
@@ -162,21 +145,17 @@ jobs:
             exit 1
           fi
           cd sdk
-
-          # Update feeds to github source
           sed -i \
               -e 's|git\.openwrt\.org/feed|github.com/openwrt|g' \
               -e 's|git\.openwrt\.org/project|github.com/openwrt|g' \
               -e 's|git\.openwrt\.org/openwrt|github.com/openwrt|g' \
               "feeds.conf.default"
-
           cat > feeds.tmp <<'EOF'
           src-git passwall_packages https://github.com/${{ env.packages }}.git;main
           src-git passwall https://github.com/${{ env.passwall }}.git;${{ github.ref_name }}
           EOF
           cat feeds.conf.default >> feeds.tmp
           mv feeds.tmp feeds.conf.default
-
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -191,39 +170,47 @@ jobs:
           echo "CONFIG_LUCI_LANG_zh_Hans=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-passwall=m" >> .config
           make defconfig
-          echo "make package/luci-app-passwall/{clean,compile} -j$(nproc)"
           make package/luci-app-passwall/{clean,compile} -j$(nproc) V=s
+
           mkdir upload
-          mv bin/packages/*/passwall/luci-* upload/
+          mv bin/packages/*/passwall/luci-* upload/ 2>/dev/null || true
+
+          # 记录编译完成时间
+          BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S %Z')
+          echo "Build completed: $BUILD_DATE" > upload/build_info.txt
+
           cd upload
-          for i in $(ls); do mv $i ${{ matrix.ver }}_$i; done
+          for i in *.ipk; do
+            [ -f "$i" ] && mv "$i" "${{ matrix.ver }}_$i"
+          done
+
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-      - name: Append build date to release notes
+
+      - name: Append build info to release notes
         if: steps.compile.outputs.status == 'success'
         run: |
+          cd $GITHUB_WORKSPACE
           BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S %Z')
-          
-          # 如果 release.txt 已存在，就追加；不存在就创建
-          if [ -f release.txt ]; then
-            echo "" >> release.txt
-            echo "---" >> release.txt
-            echo "**编译信息 / Build Info**" >> release.txt
-            echo "- 编译完成时间 / Build completed: $BUILD_DATE" >> release.txt
-            echo "- SDK 版本 / SDK version: ${{ matrix.ver }}" >> release.txt
-            echo "- 构建环境 / Runner: ubuntu-latest" >> release.txt
-          else
-            echo "**编译信息 / Build Info**" >> release.txt
-            echo "- 编译完成时间 / Build completed: $BUILD_DATE" >> release.txt
-          fi
-          
-          # 让 Upload 步骤使用这个 release.txt
-          echo "RELEASE_BODY=$PWD/release.txt" >> $GITHUB_ENV
-      - name: Upload passwall ipks to release
-        uses: softprops/action-gh-release@v2
+
+          {
+            echo ""
+            echo "---"
+            echo "**编译信息 / Build Information**"
+            echo "- 完成时间 / Completed: $BUILD_DATE"
+            echo "- SDK 版本 / SDK: ${{ matrix.ver }}"
+            echo "- 强制构建 / Forced: ${{ inputs.force_build }}"
+            echo "- 分支 / Branch: ${{ github.ref_name }}"
+          } >> release.txt
+
+      - name: Upload passwall ipks & update release
         if: steps.compile.outputs.status == 'success'
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{needs.job_check.outputs.passwall_version}}
-          files: ${{ env.FIRMWARE }}/*
+          tag_name: ${{ needs.job_check.outputs.passwall_version }}
+          target_commitish: ${{ github.ref_name }}
+          prerelease: ${{ needs.job_check.outputs.prerelease }}
+          body_path: release.txt
+          files: ${{ env.FIRMWARE }}/*.ipk
