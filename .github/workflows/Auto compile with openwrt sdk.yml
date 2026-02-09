@@ -199,7 +199,26 @@ jobs:
           for i in $(ls); do mv $i ${{ matrix.ver }}_$i; done
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-
+      - name: Append build date to release notes
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S %Z')
+          
+          # 如果 release.txt 已存在，就追加；不存在就创建
+          if [ -f release.txt ]; then
+            echo "" >> release.txt
+            echo "---" >> release.txt
+            echo "**编译信息 / Build Info**" >> release.txt
+            echo "- 编译完成时间 / Build completed: $BUILD_DATE" >> release.txt
+            echo "- SDK 版本 / SDK version: ${{ matrix.ver }}" >> release.txt
+            echo "- 构建环境 / Runner: ubuntu-latest" >> release.txt
+          else
+            echo "**编译信息 / Build Info**" >> release.txt
+            echo "- 编译完成时间 / Build completed: $BUILD_DATE" >> release.txt
+          fi
+          
+          # 让 Upload 步骤使用这个 release.txt
+          echo "RELEASE_BODY=$PWD/release.txt" >> $GITHUB_ENV
       - name: Upload passwall ipks to release
         uses: softprops/action-gh-release@v2
         if: steps.compile.outputs.status == 'success'
