@@ -1,7 +1,7 @@
 #
 # Copyright (c) 2022-2025 SMALLPROGRAM <https://github.com/smallprogram>
 # Copyright (C) 2026 Openwrt-Passwall Organization
-# Description: Auto compile
+# Description: Auto compile with support for both ipk and apk formats
 #
 name: "Auto compile with openwrt sdk"
 
@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Prepare release notes base
-        if: steps.check_version.outputs.has_update == 'true'
+        if: steps.check_version.outputs.has_update == 'true' || inputs.force_build == 'true'
         run: |
           echo "![](https://img.shields.io/github/downloads/${{ env.passwall }}/${{steps.check_version.outputs.latest_version}}/total?style=flat-square)" > release.txt
           echo "" >> release.txt
@@ -87,15 +87,22 @@ jobs:
           echo "" >> release.txt
           echo "### 手动下载并安装 / Manual Download and Install" >> release.txt
           echo "" >> release.txt
-          echo "* 上传到设备后使用命令安装：" >> release.txt
-          echo " Upload files to your device, then install with shell:" >> release.txt
+          echo "* 上传到设备后使用命令安装（根据 OpenWrt 版本选择对应格式）：" >> release.txt
           echo "" >> release.txt
-          echo "**ipk**" >> release.txt
-          echo '```' >> release.txt
-          echo "opkg install /path/to/luci-app-passwall_*.ipk" >> release.txt
+          echo "**OpenWrt 24.10 及更早版本（使用 opkg，文件后缀 .ipk）**" >> release.txt
+          echo '```shell' >> release.txt
+          echo "opkg update" >> release.txt
+          echo "opkg install /path/to/luci-app-passwall*.ipk" >> release.txt
           echo '```' >> release.txt
           echo "" >> release.txt
-          echo ":warning: 请替换 /path/to/... 为实际文件路径。" >> release.txt
+          echo "**OpenWrt 25.12+（使用 apk，文件后缀 .apk）**" >> release.txt
+          echo '```shell' >> release.txt
+          echo "apk update" >> release.txt
+          echo "apk add --allow-untrusted /path/to/luci-app-passwall*.apk" >> release.txt
+          echo '```' >> release.txt
+          echo "" >> release.txt
+          echo ":warning: 请替换 /path/to/... 为实际文件路径。apk 安装可能需 --allow-untrusted（自签名包）。" >> release.txt
+          echo ":warning: Replace /path/to/... with actual path. For apk, --allow-untrusted may be needed for self-signed packages." >> release.txt
 
   job_build_passwall:
     name: Build passwall [${{ matrix.ver }}]
@@ -172,16 +179,25 @@ jobs:
           make defconfig
           make package/luci-app-passwall/{clean,compile} -j$(nproc) V=s
 
-          mkdir upload
-          mv bin/packages/*/passwall/luci-* upload/ 2>/dev/null || true
+          mkdir -p upload
+          # 移动所有相关包（支持 .ipk 和 .apk，包括 i18n 等）
+          find bin/packages/ -type f \( -name "*passwall*.ipk" -o -name "*passwall*.apk" \) -exec mv {} upload/ \; 2>/dev/null || true
 
-          # 记录编译完成时间
+          # 记录编译信息
           BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S %Z')
+          if ls upload/*.apk >/dev/null 2>&1; then
+            PKG_FORMAT="apk (OpenWrt 25.12+)"
+          else
+            PKG_FORMAT="ipk (旧版兼容)"
+          fi
           echo "Build completed: $BUILD_DATE" > upload/build_info.txt
+          echo "Package format: $PKG_FORMAT" >> upload/build_info.txt
+          echo "SDK: ${{ matrix.ver }}" >> upload/build_info.txt
 
           cd upload
-          for i in *.ipk; do
-            [ -f "$i" ] && mv "$i" "${{ matrix.ver }}_$i"
+          # 重命名：加版本前缀，保留原后缀
+          for file in *.{ipk,apk}; do
+            [ -f "$file" ] && mv "$file" "${{ matrix.ver }}_$file"
           done
 
           echo "status=success" >> $GITHUB_OUTPUT
@@ -197,13 +213,14 @@ jobs:
             echo ""
             echo "---"
             echo "**编译信息 / Build Information**"
-            echo "- 完成时间 / Completed: $BUILD_DATE"
+            echo "- 完成时间 / Completed: $BUILD_DATE (Asia/Shanghai)"
             echo "- SDK 版本 / SDK: ${{ matrix.ver }}"
             echo "- 强制构建 / Forced: ${{ inputs.force_build }}"
             echo "- 分支 / Branch: ${{ github.ref_name }}"
+            echo "- 构建矩阵 / Matrix: x86/64"
           } >> release.txt
 
-      - name: Upload passwall ipks & update release
+      - name: Upload packages & update release
         if: steps.compile.outputs.status == 'success'
         uses: softprops/action-gh-release@v2
         env:
@@ -213,4 +230,4 @@ jobs:
           target_commitish: ${{ github.ref_name }}
           prerelease: ${{ needs.job_check.outputs.prerelease }}
           body_path: release.txt
-          files: ${{ env.FIRMWARE }}/*.ipk
+          files: ${{ env.FIRMWARE }}/*.*pk   # 匹配 .ipk 和 .apk
