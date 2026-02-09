@@ -9,9 +9,21 @@ on:
   workflow_dispatch:
     inputs:
       ssh:
-        description: 'SSH connection to Actions'
+        description: '开启 SSH 连接用于调试 Actions（会暂停等待登录，慎用）/ Enable SSH server for debugging (workflow will pause)'
         required: false
         default: 'false'
+        type: boolean
+
+      force_build:
+        description: '强制编译（忽略版本检查）/ Force build even without version update'
+        required: false
+        default: 'false'
+        type: boolean
+
+      custom_note:
+        description: '本次编译的备注（会显示在 release 说明里，可留空）/ Note for this build (will appear in release body)'
+        required: false
+        default: ''
 env:
   TZ: Asia/Shanghai
   passwall: ${{ github.repository }}
