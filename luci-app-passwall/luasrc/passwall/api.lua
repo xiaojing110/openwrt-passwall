@@ -21,8 +21,6 @@ LOG_FILE = "/tmp/log/" .. appname .. ".log"
 TMP_PATH = "/tmp/etc/" .. appname
 TMP_IFACE_PATH = TMP_PATH .. "/iface"
 
-NEW_PORT = nil
-
 function log(...)
 	local result = os.date("%Y-%m-%d %H:%M:%S: ") .. table.concat({...}, " ")
 	local f, err = io.open(LOG_FILE, "a")
@@ -98,12 +96,7 @@ end
 
 function get_new_port()
 	local cmd_format = ". /usr/share/passwall/utils.sh ; echo -n $(get_new_port %s tcp,udp)"
-	local set_port = 0
-	if NEW_PORT and tonumber(NEW_PORT) then
-		set_port = tonumber(NEW_PORT) + 1
-	end
-	NEW_PORT = tonumber(sys.exec(string.format(cmd_format, set_port == 0 and "auto" or set_port)))
-	return NEW_PORT
+	return tonumber(sys.exec(string.format(cmd_format, "auto")))
 end
 
 function exec_call(cmd)
@@ -528,6 +521,46 @@ function get_valid_nodes()
 	for i = 1, #default_nodes do nodes[#nodes + 1] = default_nodes[i] end
 	for i = 1, #other_nodes do nodes[#nodes + 1] = other_nodes[i] end
 	return nodes
+end
+
+function get_node_list()
+	local node_list = {
+		socks_list = {},
+		normal_list = {},
+	}
+	uci:foreach(appname, "socks", function(s)
+		if s.enabled == "1" and s.node then
+			node_list.socks_list[#node_list.socks_list + 1] = {
+				id = "Socks_" .. s[".name"],
+				remark = i18n.translate("Socks Config") .. " [" .. s.port .. i18n.translate("Port") .. "]",
+				group = "Socks"
+			}
+		end
+	end)
+	for k, e in ipairs(get_valid_nodes()) do
+		if e.node_type == "normal" then
+			node_list.normal_list[#node_list.normal_list + 1] = {
+				id = e[".name"],
+				remark = e["remark"],
+				type = e["type"],
+				chain_proxy = e["chain_proxy"],
+				group = e["group"]
+			}
+		end
+		if e.protocol and e.protocol:find("^_") then
+			local proto = e.protocol:sub(2)
+			if not node_list[proto .. "_list"] then
+				node_list[proto .. "_list"] = {}
+			end
+			node_list[proto .. "_list"][#node_list[proto .. "_list"] + 1] = {
+				id = e[".name"],
+				remark = e["remark"],
+				group = e["group"],
+				o = e,
+			}
+		end
+	end
+	return node_list
 end
 
 function get_node_remarks(n)
